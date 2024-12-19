@@ -4,8 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go/ptr"
 	"github.com/fatih/color"
@@ -31,14 +33,28 @@ func main() {
 	var profile string
 	var region string
 	var output string
+	var trustedAccountsInput string
 	flag.StringVar(&profile, "profile", "", "AWS profile name [Default: Default profile, IMDS, or environment variables]")
 	flag.StringVar(&region, "region", "", "AWS region [Default: All regions]")
+	flag.StringVar(&trustedAccountsInput, "trusted-accounts", "", "Comma-separated list of AWS account IDs that are allowed to share AMIs")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose output for detailed status updates")
 	flag.StringVar(&output, "output", "", "Specify file path/name for csv report)")
 	flag.Parse()
 
 	if output != "" {
 		PreparePath(output)
+	}
+
+	var trustedAccounts []string
+	if trustedAccountsInput != "" {
+		// Split the comma-separated list of allowed accounts and trim any whitespace
+		trustedAccounts = strings.Split(trustedAccountsInput, ",")
+		for i, account := range trustedAccounts {
+			trustedAccounts[i] = strings.TrimSpace(account)
+		}
+		if verbose {
+			fmt.Printf("[*] User provided trusted accounts: %v\n", trustedAccounts)
+		}
 	}
 
 	if verbose {
@@ -85,10 +101,14 @@ func main() {
 	verifiedAMIs := make(map[string]AMI)
 	unverifiedAMIs := make(map[string]AMI)
 	unknownAMIs := make(map[string]AMI)
-	privateAMIs := make(map[string]AMI)
+	selfHostedAMIs := make(map[string]AMI)
+	alllowedAMIs := make(map[string]AMI)
+	trustedAMIs := make(map[string]AMI)
+	allowedAMIAccountsByRegion := make(map[string][]string)
+	allowedAMIStateByRegion := make(map[string]string)
 	totalInstances := 0
 
-	fmt.Println("\nStarting AMI analysis...")
+	fmt.Println("[*] Starting AMI analysis...")
 	// Loop through regions
 	for _, region := range regions {
 		if verbose {
@@ -96,6 +116,42 @@ func main() {
 		}
 		cfg.Region = region
 		ec2Client := ec2.NewFromConfig(cfg)
+
+		allowedAMIsState, allowedAMIAccounts, err := CheckAllowedAMIs(ec2Client)
+		allowedAMIStateByRegion[region] = allowedAMIsState
+		allowedAMIAccountsByRegion[region] = allowedAMIAccounts
+		if err != nil {
+			if strings.Contains(err.Error(), "UnauthorizedOperation") {
+				color.Red("[!] [%s] Error calling ec2:GetAllowedImagesSettings. Check to see if %s has this permission", region, aws.ToString(callerIdentity.Arn))
+			} else {
+				color.Red("[!] [%s] Error calling ec2:GetAllowedImagesSettings: %v", region, err)
+			}
+		} else if allowedAMIsState == "enabled" {
+			if verbose {
+				fmt.Printf("[*] [%s] Allowed AMI Accounts is enabled in region \n", region)
+			}
+		} else if allowedAMIsState == "audit-mode" {
+			if verbose {
+				fmt.Printf("[*] [%s] Allowed AMI Accounts is in audit mode in region\n", region)
+			}
+		} else {
+			if verbose {
+				fmt.Printf("[*] [%s] Allowed AMIs are disabled in region\n", region)
+			}
+		}
+		if allowedAMIsState == "enabled" || allowedAMIsState == "audit-mode" {
+
+			if len(allowedAMIAccounts) > 0 {
+				if verbose {
+					fmt.Printf("[*] [%s] Allowed AMIs found in region\n", region)
+				}
+			} else {
+				if verbose {
+					fmt.Printf("[*] [%s] No allowed AMIs found in region\n", region)
+				}
+			}
+
+		}
 
 		// Fetch instances
 		instancesOutput, err := ec2Client.DescribeInstances(context.TODO(), &ec2.DescribeInstancesInput{})
@@ -183,29 +239,44 @@ func main() {
 							Public:      publicString,
 						}
 
-						if *image.Public {
-							if ami.OwnerAlias != "" {
-								if ami.OwnerAlias == "amazon" {
-									if verbose {
-										color.Green("[%d/%d][%s] %s is a community AMI from a verified account.", i+1, len(instanceIDs), region, amiID)
-									}
-									verifiedAMIs[amiID] = ami
-								} else if ami.OwnerAlias == "self" {
-									if verbose {
-										color.Green("[%d/%d][%s] %s is private.", i+1, len(instanceIDs), region, amiID)
-									}
-									ami.OwnerAlias = "self"
-									privateAMIs[amiID] = ami
+						if ami.OwnerAlias != "" {
+							if ami.OwnerAlias == "amazon" {
+								if verbose {
+									color.Green("[%d/%d][%s] %s is a community AMI from an AWS verified account.", i+1, len(instanceIDs), region, amiID)
 								}
-							} else {
-								color.Red("[%d/%d][%s] %s is a community AMI from an unverified account.", i+1, len(instanceIDs), region, amiID)
-								unverifiedAMIs[amiID] = ami
+								verifiedAMIs[amiID] = ami
+							} else if ami.OwnerAlias == "aws-marketplace" {
+								if verbose {
+									color.Green("[%d/%d][%s] %s is a AWS marketplace AMI from a verified account.", i+1, len(instanceIDs), region, amiID)
+								}
+								verifiedAMIs[amiID] = ami
+							} else if ami.OwnerAlias == "self" {
+								if verbose {
+									color.Green("[%d/%d][%s] %s is hosted from this account.", i+1, len(instanceIDs), region, amiID)
+								}
+								selfHostedAMIs[amiID] = ami
 							}
 						} else {
-							if verbose {
-								color.Green("[%d/%d][%s] %s is private.", i+1, len(instanceIDs), region, amiID)
+							// The AMI has no OwnerAlias specified which means it is a community AMI or shared directly with this account.
+							// check if the AMI is from an allowed account
+							if allowedAMIsState == "enabled" || allowedAMIsState == "audit-mode" {
+								if contains(allowedAMIAccounts, ami.OwnerID) {
+									if verbose {
+										color.Green("[%d/%d][%s] %s is from an allowed account.", i+1, len(instanceIDs), region, amiID)
+									}
+									alllowedAMIs[amiID] = ami
+								} else if contains(trustedAccounts, ami.OwnerID) {
+									if verbose {
+										color.Green("[%d/%d][%s] %s is from a trusted account.", i+1, len(instanceIDs), region, amiID)
+									}
+									trustedAMIs[amiID] = ami
+								} else {
+									if verbose {
+										color.Red("[%d/%d][%s] %s is from an unverified account.", i+1, len(instanceIDs), region, amiID)
+									}
+									unverifiedAMIs[amiID] = ami
+								}
 							}
-							privateAMIs[amiID] = ami
 						}
 					}
 				}
@@ -213,30 +284,38 @@ func main() {
 		}
 	}
 
+	enabledCount, auditModeCount, disabledCount := countRegionsWithAllowedAmisEnabled(regions, allowedAMIStateByRegion)
+
 	// Print a summary key before the summary that defines the terms:
 	fmt.Println("\nSummary Key:")
-	fmt.Println("+--------------------+-----------------------------------------------------------+")
-	fmt.Println("| Term               | Definition                                                |")
-	fmt.Println("+--------------------+-----------------------------------------------------------+")
-	color.Green("| Private            | AMIs that are served from this account that are private   |")
-	color.Green("| Public & Verified  | AMIs from Verified Accounts (Verified from Amazon)        |")
-	color.Yellow("| Unknown            | AMIs in use that are no longer available. The AMI may     |")
-	color.Yellow("|                    | have been deleted or made private. We can not determine   |")
-	color.Yellow("|                    | if these were served from a verified account              |")
-	color.Red("| Public & Unverified| AMIs from unverified accounts. Be cautious with these     |")
-	color.Red("|                    | unless they are from accounts you control. If not from    |")
-	color.Red("|                    | your accounts, look to replace these with AMIs from       |")
-	color.Red("|                    | verified accounts                                         |")
-	fmt.Println("+------------------+-------------------------------------------------------------+")
+	fmt.Println("+---------------------+-----------------------------------------------------------+")
+	fmt.Println("| Term                | Definition                                                |")
+	fmt.Println("+---------------------+-----------------------------------------------------------+")
+	color.Green("| Self hosted         | AMIs from this account                                    |")
+	color.Green("| Allowed AMIs        | AMIs from an allowed account per the AWS Allowed AMIs API |")
+	color.Green("| Trusted AMIs        | AMIs from an trusted account per user input to this tool  |")
+	color.Green("| Public & Verified   | AMIs from Verified Accounts (Verified from Amazon)        |")
+	color.Yellow("| Unknown             | AMIs in use that are no longer available. The AMI may     |")
+	color.Yellow("|                     | have been deleted or made private. We can not determine   |")
+	color.Yellow("|                     | if these were served from a verified account              |")
+	color.Red("| Public & Unverified | AMIs from unverified accounts. Be cautious with these     |")
+	color.Red("|                     | unless they are from accounts you control. If not from    |")
+	color.Red("|                     | your accounts, look to replace these with AMIs from       |")
+	color.Red("|                     | verified accounts                                         |")
+	fmt.Println("+---------------------+-------------------------------------------------------------+")
 
 	// Output results
 	fmt.Println("\nSummary:")
-	color.Cyan("          Total Instances: %d", totalInstances)
-	color.Cyan("               Total AMIs: %d", len(processedAMIs))
-	color.Green("            Private AMIs: %d", len(privateAMIs))
-	color.Green("  Public & Verified AMIs: %d", len(verifiedAMIs))
-	color.Yellow("  AMIs w/ Unknown status: %d", len(unknownAMIs))
-	color.Red("Public & Unverified AMIs: %d", len(unverifiedAMIs))
+	color.Cyan(" Allowed AMI status by region")
+	color.Cyan(" Enabled/Audit-mode/Disabled: %d/%d/%d", enabledCount, auditModeCount, disabledCount)
+	color.Cyan("             Total Instances: %d", totalInstances)
+	color.Cyan("                  Total AMIs: %d", len(processedAMIs))
+	color.Green("            Self hosted AMIs: %d", len(selfHostedAMIs))
+	color.Green("                Allowed AMIs: %d", len(alllowedAMIs))
+	color.Green("                Trusted AMIs: %d", len(trustedAMIs))
+	color.Green("      Public & Verified AMIs: %d", len(verifiedAMIs))
+	color.Yellow("      AMIs w/ Unknown status: %d", len(unknownAMIs))
+	color.Red("    Public & Unverified AMIs: %d", len(unverifiedAMIs))
 
 	if output != "" {
 
@@ -251,7 +330,7 @@ func main() {
 		for _, ami := range verifiedAMIs {
 			_, err = file.WriteString(fmt.Sprintf("%s|%s|Verified|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public, ami.OwnerAlias, ami.OwnerID, ami.Name, ami.Description))
 		}
-		for _, ami := range privateAMIs {
+		for _, ami := range selfHostedAMIs {
 			_, err = file.WriteString(fmt.Sprintf("%s|%s|Private|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public, ami.OwnerAlias, ami.OwnerID, ami.Name, ami.Description))
 		}
 		for _, ami := range unknownAMIs {
@@ -301,4 +380,48 @@ func PreparePath(outputPath string) (string, error) {
 	}
 
 	return fullPath, nil
+}
+
+func CheckAllowedAMIs(client *ec2.Client) (string, []string, error) {
+	// Check if the region supports allowedAMIs
+	GetAllowedImagesOutput, err := client.GetAllowedImagesSettings(context.TODO(), &ec2.GetAllowedImagesSettingsInput{})
+
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get allowed AMIs settings: %v", err)
+
+	}
+	var ImageCriteria []types.ImageCriterion
+	var ImageProviders []string
+
+	ImageCriteria = GetAllowedImagesOutput.ImageCriteria
+	for _, ImageCriteria := range ImageCriteria {
+		ImageProviders = append(ImageProviders, ImageCriteria.ImageProviders...)
+	}
+
+	return *GetAllowedImagesOutput.State, ImageProviders, nil
+}
+
+// Returns true of a string is in the given list of strings. Else false
+func contains(slice []string, item string) bool {
+	for _, a := range slice {
+		if a == item {
+			return true
+		}
+	}
+	return false
+}
+
+func countRegionsWithAllowedAmisEnabled(regions []string, allowedAMIStateByRegion map[string]string) (int, int, int) {
+	var enabledCount, auditModeCount, disabledCount int
+	for _, region := range regions {
+		switch allowedAMIStateByRegion[region] {
+		case "enabled":
+			enabledCount++
+		case "audit-mode":
+			auditModeCount++
+		default:
+			disabledCount++
+		}
+	}
+	return enabledCount, auditModeCount, disabledCount
 }
