@@ -1,11 +1,11 @@
 # whoAMI-scanner 
-The `whoAMI-scanner` is a command-line tool that scans your AWS account(s) for instances running on untrusted Amazon Machine Images (AMIs). It was developed alongside our blog post [whoAMI: A cloud image name confusion attack](), which reveals how attackers can potentially trick victims into using malicious AMIs. 
+The `whoAMI-scanner` is a command-line tool that scans your AWS account(s) for instances created from untrusted Amazon Machine Images (AMIs). It was developed alongside our blog post [whoAMI: A cloud image name confusion attack](), which shares a new way attackers can potentially trick victims into using malicious AMIs. 
 
 The most effective protection against the whoAMI attack is to leverage AWS's [Allowed AMIs](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-allowed-amis.html) feature (released December 1, 2024). However, we created `whoAMI-scanner` to give you a quick way to identity any instancess sourced from **Unverified Community AMIs**.   
 
 # Quick Start
 ```
-❯ whoAMI-scanner --profile cfdeploy 
+❯ whoAMI-scanner --profile profile_name 
 ```
 ![image](https://github.com/user-attachments/assets/7d0fd3fe-7ba4-47c2-b611-95b642ced1a8)
 
@@ -34,17 +34,18 @@ go build .
 ```
 
 # Prerequisites
-Supports AWS profiles, AWS environment variables, or metadata retrieval (on an ec2 instance)
+You'll need AWS credentials with the following permissions
 
 ## Required Permissions
 * `ec2:DescribeInstances`
 * `ec2:DescribeImages`
 
 ## Optional but recommended permissions:
-* `ec2:GetAllowedImagesSettings`
+* `ec2:GetAllowedImagesSettings` 
+
 
 # Details
-The whoAMI-scanner tool provides several options to customize its behavior:  
+The `whoAMI-scanner` tool provides several options to customize its behavior:  
 ```
     --profile: Specify the AWS profile to use. [Default: uses AWS CLI defaults (Checks default profile, then environment variables, then IMDS)]
     --region: Specify one specific AWS region to scan. [Default: all regions]
@@ -56,12 +57,13 @@ The whoAMI-scanner tool provides several options to customize its behavior:
 For a complete list of options, run:
 `whoAMI-scanner --help`
 
+
 # Contributing
 Contributions are welcome! Please fork the repository and submit a pull request.  
 
 # FAQ
 Q: What is the purpose of this tool?  
-A: The whoAMI-scanner helps you detect the use of untrusted AMIs in your AWS environment.  
+A: The `whoAMI-scanner` helps you detect the use of untrusted AMIs in your AWS environment.  
 
 Q: How do I specify multiple regions?  
 A: Currently you can only specify one region at a time or run the tool against all regions (default).  
