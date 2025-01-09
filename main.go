@@ -19,7 +19,7 @@ import (
 
 var (
 	verbose                    bool
-	version                    = "0.0.3"
+	version                    = "0.0.4"
 	cyan                       = color.New(color.FgCyan).SprintFunc()
 	green                      = color.New(color.FgGreen).SprintFunc()
 	yellow                     = color.New(color.FgYellow).SprintFunc()
