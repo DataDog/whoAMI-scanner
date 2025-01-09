@@ -135,9 +135,9 @@ func main() {
 	fmt.Println("[*] Starting AMI analysis...")
 	// Loop through regions
 	for _, region := range regions {
-		if verbose {
-			fmt.Printf("[*] Checking region %s\n", region)
-		}
+		//if verbose {
+		//	fmt.Printf("[*] Checking region %s\n", region)
+		//}
 		cfg.Region = region
 		ec2Client := ec2.NewFromConfig(cfg)
 
@@ -157,30 +157,30 @@ func main() {
 			}
 		} else if allowedAMIsState == "enabled" {
 			if verbose {
-				fmt.Printf("[*] [%s] Allowed AMI Accounts is enabled in region \n", region)
+				fmt.Printf("[*] [%s] Allowed AMI Accounts status: %s\n", region, green("Enabled"))
 			}
 		} else if allowedAMIsState == "audit-mode" {
 			if verbose {
-				fmt.Printf("[*] [%s] Allowed AMI Accounts is in audit mode in region\n", region)
+				fmt.Printf("[*] [%s] Allowed AMI Accounts status: %s\n", region, yellow("Audit mode"))
 			}
 		} else {
 			if verbose {
-				fmt.Printf("[*] [%s] Allowed AMIs are disabled in region\n", region)
+				fmt.Printf("[*] [%s] Allowed AMI Accounts status: %s\n", region, red(("Disabled")))
 			}
 		}
-		if allowedAMIsState == "enabled" || allowedAMIsState == "audit-mode" {
-
-			if len(allowedAMIAccounts) > 0 {
-				if verbose {
-					fmt.Printf("[*] [%s] Allowed AMIs found in region\n", region)
-				}
-			} else {
-				if verbose {
-					fmt.Printf("[*] [%s] No allowed AMIs found in region\n", region)
-				}
-			}
-
-		}
+		//if allowedAMIsState == "enabled" || allowedAMIsState == "audit-mode" {
+		//
+		//	if len(allowedAMIAccounts) > 0 {
+		//		if verbose {
+		//			fmt.Printf("[*] [%s] Allowed AMI accounts found in region\n", region)
+		//		}
+		//	} else {
+		//		if verbose {
+		//			fmt.Printf("[*] [%s] No allowed AMIs found in region\n", region)
+		//		}
+		//	}
+		//
+		//}
 
 		// Fetch instances
 		instancesOutput, err := ec2Client.DescribeInstances(context.TODO(), &ec2.DescribeInstancesInput{})
@@ -418,7 +418,8 @@ func main() {
 		color.Yellow("\nInstances running private shared AMIs:")
 		for amiID := range privateSharedAMIs {
 			for _, instance := range amiToInstanceMap[amiID] {
-				fmt.Printf(" %s | %s | %s | Account: %s | Name: %s\n", amiID, instance.Region, instance.ID, privateSharedAMIs[amiID].OwnerID, instance.Name)
+				fmt.Printf(" %s | %s | %s | Account: %s | Instance Name: %s | AMI Name: %s\n", amiID,
+					instance.Region, instance.ID, privateSharedAMIs[amiID].OwnerID, instance.Name, privateSharedAMIs[amiID].Name)
 			}
 		}
 	}
@@ -433,10 +434,12 @@ func main() {
 	}
 
 	if len(unverifiedAMIs) > 0 {
-		color.Red("\nInstances running AMIs from unverified accounts:")
+		color.Red("\nInstances running AMIs from public unverified accounts:")
 		for amiID := range unverifiedAMIs {
 			for _, instance := range amiToInstanceMap[amiID] {
-				fmt.Printf(" %s | %s | %s | Account: %s | Name: %s\n", amiID, instance.Region, instance.ID, unverifiedAMIs[amiID].OwnerID, instance.Name)
+				fmt.Printf(" %s | %s | %s | Account: %s | Instance Name: %s | AMI Name: %s\n", amiID, instance.Region,
+					instance.ID,
+					unverifiedAMIs[amiID].OwnerID, instance.Name, unverifiedAMIs[amiID].Name)
 			}
 		}
 	}

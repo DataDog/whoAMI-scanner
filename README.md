@@ -39,6 +39,7 @@ You'll need AWS credentials with the following permissions
 ## Required Permissions
 * `ec2:DescribeInstances`
 * `ec2:DescribeImages`
+* `ec2:DescribeInstanceImageMetadata`
 
 ## Optional but recommended permissions:
 * `ec2:GetAllowedImagesSettings` 
