@@ -19,7 +19,7 @@ import (
 
 var (
 	verbose                    bool
-	version                    = "0.0.4"
+	version                    = "0.0.5"
 	cyan                       = color.New(color.FgCyan).SprintFunc()
 	green                      = color.New(color.FgGreen).SprintFunc()
 	yellow                     = color.New(color.FgYellow).SprintFunc()
@@ -351,6 +351,14 @@ func main() {
 
 						// check to see if the AMI is shared privately with this account (but not trusted or allowed)
 						if ami.Public == "Private" {
+							// if the ownerID is the same as the caller identity, then it is self hosted
+							if ami.OwnerID == *callerIdentity.Account {
+								if verbose {
+									color.Green("[%d/%d][%s] %s is hosted from this account.", i+1, len(instanceIDs), region, amiID)
+								}
+								selfHostedAMIs[amiID] = ami
+								continue
+							}
 							if verbose {
 								color.Yellow("[%d/%d][%s] %s is privately shared with me but not from a trusted or allowed account.", i+1, len(instanceIDs), region, amiID)
 							}
