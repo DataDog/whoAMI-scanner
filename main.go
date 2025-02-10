@@ -30,7 +30,7 @@ var (
 )
 
 const (
-	AmiOwnerNameUnknown "unknown"
+	AmiOwnerNameUnknown = "Unknown"
 )
 
 type AMI struct {
@@ -108,7 +108,8 @@ func main() {
 	}
 	_ = *callerIdentity.Account
 
-	fmt.Printf("[%s] %s", cyan(emoji.Sprintf(":eyes:whoAMI-scanner v%s :eyes:", version)), fmt.Sprintf("AWS Caller Identity: %s\n", aws.ToString(callerIdentity.Arn)))
+	fmt.Printf("[%s] %s", cyan(emoji.Sprintf(" :eyes:whoAMI-scanner v%s :eyes:", version)),
+		fmt.Sprintf("AWS Caller Identity: %s\n", aws.ToString(callerIdentity.Arn)))
 
 	if verbose {
 		fmt.Println("[*] Verbose mode enabled.")
