@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.198.2
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.4
 	github.com/aws/smithy-go v1.22.1
+	github.com/bishopfox/knownawsaccountslookup v0.0.0-20231228165844-c37ef8df33cb
 	github.com/fatih/color v1.18.0
 	github.com/kyokomi/emoji v2.2.4+incompatible
 )
@@ -25,4 +26,5 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	golang.org/x/sys v0.29.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

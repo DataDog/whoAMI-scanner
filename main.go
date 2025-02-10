@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go/ptr"
+	"github.com/bishopfox/knownawsaccountslookup"
 	"github.com/fatih/color"
 	"github.com/kyokomi/emoji"
 	"os"
@@ -19,7 +20,7 @@ import (
 
 var (
 	verbose                    bool
-	version                    = "0.0.5"
+	version                    = "1.0.0"
 	cyan                       = color.New(color.FgCyan).SprintFunc()
 	green                      = color.New(color.FgGreen).SprintFunc()
 	yellow                     = color.New(color.FgYellow).SprintFunc()
@@ -28,11 +29,16 @@ var (
 	allowedAMIPermissionDenied = false
 )
 
+const (
+	AmiOwnerNameUnknown = "Unknown"
+)
+
 type AMI struct {
 	ID          string
 	Region      string
 	OwnerAlias  string
 	OwnerID     string
+	OwnerName   string
 	Name        string
 	Description string
 	Public      string
@@ -49,6 +55,8 @@ func main() {
 	var profile string
 	var region string
 	var output string
+	var vendors *knownawsaccountslookup.Vendors
+
 	var trustedAccountsInput string
 	flag.StringVar(&profile, "profile", "", "AWS profile name [Default: Default profile, IMDS, or environment variables]")
 	flag.StringVar(&region, "region", "", "AWS region [Default: All regions]")
@@ -63,6 +71,9 @@ func main() {
 	if output != "" {
 		PreparePath(output)
 	}
+
+	vendors = knownawsaccountslookup.NewVendorMap()
+	vendors.PopulateKnownAWSAccounts()
 
 	var trustedAccounts []string
 	if trustedAccountsInput != "" {
@@ -97,7 +108,8 @@ func main() {
 	}
 	_ = *callerIdentity.Account
 
-	fmt.Printf("[%s] %s", cyan(emoji.Sprintf(":eyes:whoAMI-scanner v%s :eyes:", version)), fmt.Sprintf("AWS Caller Identity: %s\n", aws.ToString(callerIdentity.Arn)))
+	fmt.Printf("[%s] %s", cyan(emoji.Sprintf(" :eyes:whoAMI-scanner v%s :eyes:", version)),
+		fmt.Sprintf("AWS Caller Identity: %s\n", aws.ToString(callerIdentity.Arn)))
 
 	if verbose {
 		fmt.Println("[*] Verbose mode enabled.")
@@ -123,6 +135,7 @@ func main() {
 	processedAMIs := make(map[string]bool)
 	verifiedAMIs := make(map[string]AMI)
 	unverifiedAMIs := make(map[string]AMI)
+	unverifiedButKnownAMIs := make(map[string]AMI)
 	unknownAMIs := make(map[string]AMI)
 	selfHostedAMIs := make(map[string]AMI)
 	alllowedAMIs := make(map[string]AMI)
@@ -269,11 +282,17 @@ func main() {
 							} else {
 								publicString = "Private"
 							}
+							// lookup the vendor name and use that for ownerName if it exists otherwise set it to "unknown"
+							ownerName := vendors.GetVendorNameFromAccountID(*image.OwnerId)
+							if ownerName == "" {
+								ownerName = AmiOwnerNameUnknown
+							}
 							ami = AMI{
 								ID:          amiID,
 								Region:      region,
 								OwnerAlias:  ptr.ToString(image.ImageOwnerAlias),
 								OwnerID:     ptr.ToString(image.OwnerId),
+								OwnerName:   ownerName,
 								Name:        ptr.ToString(image.Name),
 								Description: ptr.ToString(image.Description),
 								Public:      publicString,
@@ -297,12 +316,18 @@ func main() {
 							} else {
 								publicString = "Private"
 							}
+							// lookup the vendor name and use that for ownerName if it exists otherwise set it to "unknown"
+							ownerName := vendors.GetVendorNameFromAccountID(*instance.ImageMetadata.OwnerId)
+							if ownerName == "" {
+								ownerName = AmiOwnerNameUnknown
+							}
 
 							ami = AMI{
 								ID:          amiID,
 								Region:      region,
 								OwnerAlias:  ptr.ToString(instance.ImageMetadata.ImageOwnerAlias),
 								OwnerID:     ptr.ToString(instance.ImageMetadata.OwnerId),
+								OwnerName:   ownerName,
 								Name:        ptr.ToString(instance.ImageMetadata.Name),
 								Description: "Unable to find description. AMI has been deleted or made private",
 							}
@@ -365,7 +390,15 @@ func main() {
 							privateSharedAMIs[amiID] = ami
 							continue
 						}
-
+						// if the ami.OwnerName is not empty or "unknown" then it is a community AMI
+						if ami.OwnerName != "" && ami.OwnerName != AmiOwnerNameUnknown {
+							if verbose {
+								color.Yellow("[%d/%d][%s] %s is from an unverified account but is a known AWS vendor"+
+									" according to the community.", i+1, len(instanceIDs), region, amiID)
+							}
+							unverifiedButKnownAMIs[amiID] = ami
+							continue
+						}
 						color.Red("[%d/%d][%s] %s is from an unverified account.", i+1, len(instanceIDs), region, amiID)
 
 						unverifiedAMIs[amiID] = ami
@@ -383,25 +416,26 @@ func main() {
 
 	// Print a summary key before the summary that defines the terms:
 	fmt.Println("\nSummary Key:")
-	fmt.Println("+--------------------------+-----------------------------------------------------------+")
-	fmt.Println("| Term                     | Definition                                                |")
-	fmt.Println("+--------------------------+-----------------------------------------------------------+")
-	color.Green("| Self hosted              | AMIs from this account                                    |")
-	color.Green("| Allowed AMIs             | AMIs from an allowed account per the AWS Allowed AMIs API |")
-	color.Green("| Trusted AMIs             | AMIs from an trusted account per user input to this tool  |")
-	color.Green("| Verified AMIs            | AMIs from Verified Accounts (Verified by Amazon)          |")
-	color.Yellow("| Shared with me (Private) | AMIs shared privately with this account but NOT from a    |")
-	color.Yellow("|                          | verified, trusted or allowed account. If you trust this   |")
-	color.Yellow("|                          | account, add it to your Allowed AMIs API or specify it as |")
-	color.Yellow("|                          | trusted in the whoAMI-scanner command line.               |")
-	//color.Yellow("| Unknown                  | AMIs in use that are no longer available. The AMI may     |")
-	//color.Yellow("|                          | have been deleted or made private. We can not determine   |")
-	//color.Yellow("|                          | if these were served from a verified account              |")
-	color.Red("| Public & Unverified      | AMIs from unverified accounts. Be cautious with these     |")
-	color.Red("|                          | unless they are from accounts you control. If not from    |")
-	color.Red("|                          | your accounts, look to replace these with AMIs from       |")
-	color.Red("|                          | verified accounts                                         |")
-	fmt.Println("+--------------------------+-----------------------------------------------------------+")
+	fmt.Println("+-------------------------------+-----------------------------------------------------------+")
+	fmt.Println("| Term                          | Definition                                                |")
+	fmt.Println("+-------------------------------+-----------------------------------------------------------+")
+	color.Green("| Self hosted                   | AMIs from this account                                    |")
+	color.Green("| Allowed AMIs                  | AMIs from an allowed account per the AWS Allowed AMIs API |")
+	color.Green("| Trusted AMIs                  | AMIs from an trusted account per user input to this tool  |")
+	color.Green("| Verified AMIs                 | AMIs from Verified Accounts (Verified by Amazon)          |")
+	color.Yellow("| Shared with me (Private)      | AMIs shared privately with this account but NOT from a    |")
+	color.Yellow("|                               | verified, trusted or allowed account. If you trust this   |")
+	color.Yellow("|                               | account, add it to your Allowed AMIs API or specify it as |")
+	color.Yellow("|                               | trusted in the whoAMI-scanner command line.               |")
+	color.Yellow("| Public, unverified, but known | AMIs from unverified accounts, but we found the account   |")
+	color.Yellow("|                               | ID in fwdcloudsec's known_aws_accounts mapping:           |")
+	color.Yellow("|                               |   https://github.com/fwdcloudsec/known_aws_accounts.      |")
+	color.Yellow("|                               | These are likely safe to use but worth investigating.     |")
+	color.Red("| Public, unverified, & unknown | AMIs from unverified accounts. Be cautious with these     |")
+	color.Red("|                               | unless they are from accounts you control. If not from    |")
+	color.Red("|                               | your accounts, look to replace these with AMIs from       |")
+	color.Red("|                               | verified accounts                                         |")
+	fmt.Println("+-------------------------------+-----------------------------------------------------------+")
 
 	// Output results
 	fmt.Println("\nSummary:")
@@ -419,21 +453,22 @@ func main() {
 	color.Green("                                Trusted AMIs: %d", len(trustedAMIs))
 	color.Green("                               Verified AMIs: %d", len(verifiedAMIs))
 	color.Yellow("               Shared with me (Private) AMIs: %d", len(privateSharedAMIs))
-	//color.Yellow("                      AMIs w/ Unknown status: %d", len(unknownAMIs))
-	color.Red("                    Public & Unverified AMIs: %d", len(unverifiedAMIs))
+	color.Yellow("               Public, unverified, but known: %d", len(unverifiedButKnownAMIs))
+	color.Red("          Public, unverified, & unknown AMIs: %d", len(unverifiedAMIs))
 
 	if len(privateSharedAMIs) > 0 {
-		color.Yellow("\nInstances running private shared AMIs:")
+		color.Yellow("\nInstances created with privately shared AMIs:")
 		for amiID := range privateSharedAMIs {
 			for _, instance := range amiToInstanceMap[amiID] {
-				fmt.Printf(" %s | %s | %s | Account: %s | Instance Name: %s | AMI Name: %s\n", amiID,
-					instance.Region, instance.ID, privateSharedAMIs[amiID].OwnerID, instance.Name, privateSharedAMIs[amiID].Name)
+				fmt.Printf(" %s | %s | %s | Account: %s | Vendor Name: %s | Instance Name: %s | AMI Name: %s\n", amiID,
+					instance.Region, instance.ID, privateSharedAMIs[amiID].OwnerID,
+					privateSharedAMIs[amiID].OwnerName, instance.Name, privateSharedAMIs[amiID].Name)
 			}
 		}
 	}
 
 	if len(unknownAMIs) > 0 {
-		color.Yellow("\nInstances running unknown AMIs:")
+		color.Yellow("\nInstances created with unknown AMIs:")
 		for amiID := range unknownAMIs {
 			for _, instance := range amiToInstanceMap[amiID] {
 				fmt.Printf(" %s | %s | %s | Account: %s | Name: %s\n", amiID, instance.Region, instance.ID, unknownAMIs[amiID].OwnerID, instance.Name)
@@ -441,11 +476,28 @@ func main() {
 		}
 	}
 
+	if len(unverifiedButKnownAMIs) > 0 {
+		color.Yellow("\nInstances created with AMIs from public unverified accounts but where account belongs to a" +
+			" known vendor:")
+		for amiID := range unverifiedButKnownAMIs {
+			for _, instance := range amiToInstanceMap[amiID] {
+				fmt.Printf(" %s | %s | %s | Account: %s | Vendor Name: %s | Instance Name: %s | AMI Name: %s\n", amiID,
+					instance.Region,
+					instance.ID,
+					unverifiedButKnownAMIs[amiID].OwnerID, unverifiedButKnownAMIs[amiID].OwnerName, instance.Name,
+					unverifiedButKnownAMIs[amiID].Name)
+			}
+		}
+
+	}
+
 	if len(unverifiedAMIs) > 0 {
-		color.Red("\nInstances running AMIs from public unverified accounts:")
+		color.Red("\nInstances created with AMIs from public unverified accounts:")
 		for amiID := range unverifiedAMIs {
 			for _, instance := range amiToInstanceMap[amiID] {
-				fmt.Printf(" %s | %s | %s | Account: %s | Instance Name: %s | AMI Name: %s\n", amiID, instance.Region,
+				fmt.Printf(" %s | %s | %s | Account: %s | Vendor Name: Unknown | Instance Name: %s | AMI Name: %s"+
+					"\n", amiID,
+					instance.Region,
 					instance.ID,
 					unverifiedAMIs[amiID].OwnerID, instance.Name, unverifiedAMIs[amiID].Name)
 			}
@@ -461,27 +513,35 @@ func main() {
 		}
 		defer file.Close()
 
-		_, err = file.WriteString("AMI ID|Region|whoAMI status|Public|Owner Alias|Owner ID|Name|Description\n")
+		_, err = file.WriteString("AMI ID|Region|whoAMI status|Public|Owner Alias|Owner ID|Vendor Name|Name" +
+			"|Description\n")
 		for _, ami := range verifiedAMIs {
-			_, err = file.WriteString(fmt.Sprintf("%s|%s|Verified|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public, ami.OwnerAlias, ami.OwnerID, ami.Name, ami.Description))
+			_, err = file.WriteString(fmt.Sprintf("%s|%s|Verified|%s|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public,
+				ami.OwnerAlias, ami.OwnerID, ami.OwnerName, ami.Name, ami.Description))
 		}
 		for _, ami := range selfHostedAMIs {
-			_, err = file.WriteString(fmt.Sprintf("%s|%s|Self hosted|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public, ami.OwnerAlias, ami.OwnerID, ami.Name, ami.Description))
+			_, err = file.WriteString(fmt.Sprintf("%s|%s|Self hosted|%s|%s|%s|%s|%s|%s\n", ami.ID, ami.Region,
+				ami.Public, ami.OwnerAlias, ami.OwnerID, ami.OwnerName, ami.Name, ami.Description))
 		}
 		for _, ami := range alllowedAMIs {
-			_, err = file.WriteString(fmt.Sprintf("%s|%s|Allowed|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public, ami.OwnerAlias, ami.OwnerID, ami.Name, ami.Description))
+			_, err = file.WriteString(fmt.Sprintf("%s|%s|Allowed|%s|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public,
+				ami.OwnerAlias, ami.OwnerID, ami.OwnerName, ami.Name, ami.Description))
 		}
 		for _, ami := range trustedAMIs {
-			_, err = file.WriteString(fmt.Sprintf("%s|%s|Trusted|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public, ami.OwnerAlias, ami.OwnerID, ami.Name, ami.Description))
+			_, err = file.WriteString(fmt.Sprintf("%s|%s|Trusted|%s|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public,
+				ami.OwnerAlias, ami.OwnerID, ami.OwnerName, ami.Name, ami.Description))
 		}
 		for _, ami := range privateSharedAMIs {
-			_, err = file.WriteString(fmt.Sprintf("%s|%s|Private Shared|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public, ami.OwnerAlias, ami.OwnerID, ami.Name, ami.Description))
+			_, err = file.WriteString(fmt.Sprintf("%s|%s|Private Shared|%s|%s|%s|%s|%s|%s\n", ami.ID, ami.Region,
+				ami.Public, ami.OwnerAlias, ami.OwnerID, ami.OwnerName, ami.Name, ami.Description))
 		}
-		for _, ami := range unknownAMIs {
-			_, err = file.WriteString(fmt.Sprintf("%s|%s|Unknown|Unknown|Unknown|Unknown|Unknown\n", ami.ID, ami.Region))
+		for _, ami := range unverifiedButKnownAMIs {
+			_, err = file.WriteString(fmt.Sprintf("%s|%s|Unverified but known|%s|%s|%s|%s|%s|%s\n", ami.ID, ami.Region,
+				ami.Public, ami.OwnerAlias, ami.OwnerID, ami.Name, ami.OwnerName, ami.Description))
 		}
 		for _, ami := range unverifiedAMIs {
-			_, err = file.WriteString(fmt.Sprintf("%s|%s|Unverified|%s|%s|%s|%s|%s\n", ami.ID, ami.Region, ami.Public, ami.OwnerAlias, ami.OwnerID, ami.Name, ami.Description))
+			_, err = file.WriteString(fmt.Sprintf("%s|%s|Unverified|%s|%s|%s|%s|%s|%s\n", ami.ID, ami.Region,
+				ami.Public, ami.OwnerAlias, ami.OwnerID, ami.OwnerName, ami.Name, ami.Description))
 		}
 		// let the user know the file was written, but give them the full path. If the user have a full path print that, if they just gave a file name, print the full path using hte current direcotry
 		// this is to make it easier for the user to know where the file was written
