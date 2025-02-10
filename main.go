@@ -388,7 +388,7 @@ func main() {
 						// if the ami.OwnerName is not empty or "unknown" then it is a community AMI
 						if ami.OwnerName != "" && ami.OwnerName != "unknown" {
 							if verbose {
-								color.Red("[%d/%d][%s] %s is from an unverified account but is known AWS vendor.", i+1, len(instanceIDs), region, amiID)
+								color.Red("[%d/%d][%s] %s is from an unverified account but is a known AWS vendor according to the community.", i+1, len(instanceIDs), region, amiID)
 							}
 							unverifiedButKnownAMIs[amiID] = ami
 							continue
