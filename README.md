@@ -1,5 +1,5 @@
 # whoAMI-scanner 
-The `whoAMI-scanner` is a command-line tool that scans your AWS account(s) for instances created from untrusted Amazon Machine Images (AMIs). It was developed alongside our blog post [whoAMI: A cloud image name confusion attack](), which shares a new way attackers can potentially trick victims into using malicious AMIs. 
+The `whoAMI-scanner` is a command-line tool that scans your AWS account(s) for instances created from untrusted Amazon Machine Images (AMIs). It was developed alongside our blog post [whoAMI: A cloud image name confusion attack](https://securitylabs.datadoghq.com/articles/whoami-a-cloud-image-name-confusion-attack/), which shares a new way attackers can potentially trick victims into using malicious AMIs. 
 
 The most effective protection against the whoAMI attack is to leverage AWS's [Allowed AMIs](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-allowed-amis.html) feature (released December 1, 2024). However, we created `whoAMI-scanner` to give you a quick way to identity any instancess sourced from **Unverified Community AMIs**.   
 
