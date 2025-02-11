@@ -21,14 +21,6 @@ If, after the discussion, the proposal gets rejected, the team will give you an 
 If you have identified an issue that is already labeled as `type/bug` that hasn’t been assigned to anyone, feel free to claim it, and ask a maintainer to add you as assignee.
 Once you have some code ready, open a PR, [linking it to the issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue#manually-linking-a-pull-request-to-an-issue-using-the-pull-request-sidebar). Take into account that if the changes to fix the bug are not trivial, you need to follow the RFC process as well to discuss the options with the maintainers.
 
-### Setting up your development environment
-
-TODO
-
-### Testing your changes
-
-TODO
-
 ## Contributing to issues
 
 ### Contributing to reporting bugs
