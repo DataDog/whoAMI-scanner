@@ -7,10 +7,8 @@ The most effective protection against the whoAMI attack is to leverage AWS's [Al
 ```
 ❯ whoAMI-scanner --profile profile_name 
 ```
-![image](https://github.com/user-attachments/assets/7d0fd3fe-7ba4-47c2-b611-95b642ced1a8)
 
-
-
+![whoAMI-scanner-screenshot](https://github.com/user-attachments/assets/95cde789-d7b7-4fa7-9285-58496b8acafc)
 
 # Install
 
