@@ -322,10 +322,23 @@ func main() {
 								ownerName = AmiOwnerNameUnknown
 							}
 
+							var imageOwnerAlias string
+							// if instance.ImageMetadata.ImageOwnerAlias is the account ID then change it to ""
+							// This is required because if allowed AMIs is enabled, the initial describeImages call no
+							// longer returns AMIs that are are not allowed and we/need to use the metadata API call
+							// instead. This metadata uniquely returns the account ID as the ownerAlias which was
+							// messing with the logic
+							if ptr.ToString(instance.ImageMetadata.ImageOwnerAlias) == ptr.ToString(instance.
+								ImageMetadata.OwnerId) {
+								imageOwnerAlias = ""
+							} else {
+								imageOwnerAlias = ptr.ToString(instance.ImageMetadata.ImageOwnerAlias)
+							}
+
 							ami = AMI{
 								ID:          amiID,
 								Region:      region,
-								OwnerAlias:  ptr.ToString(instance.ImageMetadata.ImageOwnerAlias),
+								OwnerAlias:  imageOwnerAlias,
 								OwnerID:     ptr.ToString(instance.ImageMetadata.OwnerId),
 								OwnerName:   ownerName,
 								Name:        ptr.ToString(instance.ImageMetadata.Name),
