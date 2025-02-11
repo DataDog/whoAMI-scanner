@@ -21,23 +21,19 @@ If, after the discussion, the proposal gets rejected, the team will give you an 
 If you have identified an issue that is already labeled as `type/bug` that hasn’t been assigned to anyone, feel free to claim it, and ask a maintainer to add you as assignee.
 Once you have some code ready, open a PR, [linking it to the issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue#manually-linking-a-pull-request-to-an-issue-using-the-pull-request-sidebar). Take into account that if the changes to fix the bug are not trivial, you need to follow the RFC process as well to discuss the options with the maintainers.
 
-### Signing the CLA
-
-This repository requires you to sign the [Contributor License Agreement](<LINK_TO_CLA_IF_IT_EXISTS>).
-
 ### Setting up your development environment
 
-_Add here instructions on how to set up the development environment for your project_
+TODO
 
 ### Testing your changes
 
-_Add here instructions on how to run the tests in a local environment if possible_
+TODO
 
 ## Contributing to issues
 
 ### Contributing to reporting bugs
 
-If you think you have found a bug in <PROJECT_NAME> feel free to report it. When creating issues, you will be presented with a template to fill. Please, fill as much as you can from that template, including steps to reproduce your issue, so we can address it quicker.
+If you think you have found a bug in `whoAMI-scanner` feel free to report it. When creating issues, you will be presented with a template to fill. Please, fill as much as you can from that template, including steps to reproduce your issue, so we can address it quicker.
 
 ### Contributing to triaging issues
 
