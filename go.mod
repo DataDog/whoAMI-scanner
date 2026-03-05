@@ -2,6 +2,8 @@ module github.com/DataDog/whoAMI-scanner
 
 go 1.23.1
 
+toolchain go1.26.0
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.32.7
 	github.com/aws/aws-sdk-go-v2/config v1.28.8
