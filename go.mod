@@ -1,6 +1,6 @@
 module github.com/DataDog/whoAMI-scanner
 
-go 1.23.1
+go 1.25.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.32.7
@@ -25,6 +25,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.28.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
